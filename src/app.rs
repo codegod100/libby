@@ -151,13 +151,39 @@ impl cosmic::Application for AppModel {
     /// Application events will be processed through the view. Any messages emitted by
     /// events received by widgets will be passed to the update method.
     fn view(&self) -> Element<Self::Message> {
-        widget::text::title1(fl!("welcome"))
-            .apply(widget::container)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(Horizontal::Center)
-            .align_y(Vertical::Center)
-            .into()
+        let active_page = self
+            .nav
+            .data::<Page>(self.nav.active())
+            .copied()
+            .unwrap_or(Page::Page1);
+
+        match active_page {
+            Page::Page1 => widget::text::title1(fl!("welcome"))
+                .apply(widget::container)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Center)
+                .into(),
+            Page::Page2 => widget::column()
+                .push(widget::text::title1("Page 2 Content"))
+                .push(widget::text("This is page 2 with custom content!"))
+                .push(widget::button::standard("Click me").on_press(Message::SubscriptionChannel))
+                .spacing(20)
+                .apply(widget::container)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Center)
+                .into(),
+            Page::Page3 => widget::text::title1("Page 3")
+                .apply(widget::container)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Horizontal::Center)
+                .align_y(Vertical::Center)
+                .into(),
+        }
     }
 
     /// Register subscriptions for this application.
@@ -202,6 +228,7 @@ impl cosmic::Application for AppModel {
             }
 
             Message::SubscriptionChannel => {
+                println!("button clicked");
                 // For example purposes only.
             }
 
@@ -246,7 +273,8 @@ impl AppModel {
 
         let icon = widget::svg(widget::svg::Handle::from_memory(APP_ICON));
 
-        let title = widget::text::title3(fl!("app-title"));
+        let title = widget::text::title2(fl!("app-title"));
+        let author = widget::text::title3("nandi.weird.one");
 
         let hash = env!("VERGEN_GIT_SHA");
         let short_hash: String = hash.chars().take(7).collect();
@@ -259,6 +287,7 @@ impl AppModel {
         widget::column()
             .push(icon)
             .push(title)
+            .push(author)
             .push(link)
             .push(
                 widget::button::link(fl!(
@@ -292,6 +321,7 @@ impl AppModel {
 }
 
 /// The page to display in the application.
+#[derive(Copy, Clone)]
 pub enum Page {
     Page1,
     Page2,

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MPL-2.0"
 description = "An application for the COSMIC™ desktop"
-repository = "https://github.com/pop-os/cosmic-app-template"
+repository = "https://github.com/codegod100/libby"
 
 [build-dependencies]
 vergen = { version = "8", features = ["git", "gitcl"] }

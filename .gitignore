@@ -1,4 +1,4 @@
-.cargo/
+#.cargo/
 *.pdb
 **/*.rs.bk
 debug/
