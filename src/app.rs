@@ -5,12 +5,15 @@ use crate::fl;
 use cosmic::app::context_drawer;
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::iced::alignment::{Horizontal, Vertical};
-use cosmic::iced::{Alignment, Length, Subscription};
+use cosmic::iced::mouse;
+use cosmic::iced::widget::canvas::{self, Frame, Geometry, Path};
+use cosmic::iced::{Alignment, Color, Length, Point, Rectangle, Subscription};
 use cosmic::prelude::*;
-use cosmic::widget::{self, icon, menu, nav_bar};
+use cosmic::widget::{self, button, dialog, icon, menu, nav_bar};
 use cosmic::{cosmic_theme, theme};
 use futures_util::SinkExt;
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 const APP_ICON: &[u8] = include_bytes!("../resources/icons/hicolor/scalable/apps/icon.svg");
@@ -28,16 +31,22 @@ pub struct AppModel {
     key_binds: HashMap<menu::KeyBind, MenuAction>,
     // Configuration data that persists between application runs.
     config: Config,
+    /// Animation state for kawaii canvas
+    animation_time: Instant,
+    show_popup: bool,
 }
 
 /// Messages emitted by the application and its widgets.
 #[derive(Debug, Clone)]
 pub enum Message {
     OpenRepositoryUrl,
+    OpenAuthorUrl,
     SubscriptionChannel,
     ToggleContextPage(ContextPage),
+    TogglePopup,
     UpdateConfig(Config),
     LaunchUrl(String),
+    Tick(Instant),
 }
 
 /// Create a COSMIC application from the app model
@@ -105,6 +114,8 @@ impl cosmic::Application for AppModel {
                     }
                 })
                 .unwrap_or_default(),
+            animation_time: Instant::now(),
+            show_popup: false,
         };
 
         // Create a startup command that sets the window title.
@@ -158,7 +169,22 @@ impl cosmic::Application for AppModel {
             .unwrap_or(Page::Page1);
 
         match active_page {
-            Page::Page1 => widget::text::title1(fl!("welcome"))
+            Page::Page1 => widget::column()
+                .push(widget::text::title1(fl!("kawaii-title")))
+                .push(widget::text(fl!("kawaii-welcome")))
+                .push(
+                    widget::row()
+                        .push(widget::text("🐱"))
+                        .push(widget::text("💖"))
+                        .push(widget::text("🎀"))
+                        .push(widget::text("🌙"))
+                        .push(widget::text("⭐"))
+                        .spacing(10),
+                )
+                .push(widget::text(fl!("kawaii-face")))
+                .push(widget::button::standard(fl!("kawaii-button")).on_press(Message::TogglePopup))
+                .push(widget::text(fl!("kawaii-footer")))
+                .spacing(20)
                 .apply(widget::container)
                 .width(Length::Fill)
                 .height(Length::Fill)
@@ -204,6 +230,8 @@ impl cosmic::Application for AppModel {
                     futures_util::future::pending().await
                 }),
             ),
+            // Animation timer for kawaii canvas
+            cosmic::iced::time::every(Duration::from_millis(16)).map(Message::Tick),
             // Watch for application configuration changes.
             self.core()
                 .watch_config::<Config>(Self::APP_ID)
@@ -226,10 +254,19 @@ impl cosmic::Application for AppModel {
             Message::OpenRepositoryUrl => {
                 _ = open::that_detached(REPOSITORY);
             }
+            Message::OpenAuthorUrl => {
+                _ = open::that_detached(
+                    "https://deer.social/profile/did:plc:ngokl2gnmpbvuvrfckja3g7p",
+                );
+            }
 
             Message::SubscriptionChannel => {
                 println!("button clicked");
                 // For example purposes only.
+            }
+
+            Message::TogglePopup => {
+                self.show_popup = !self.show_popup;
             }
 
             Message::ToggleContextPage(context_page) => {
@@ -253,6 +290,10 @@ impl cosmic::Application for AppModel {
                     eprintln!("failed to open {url:?}: {err}");
                 }
             },
+
+            Message::Tick(instant) => {
+                self.animation_time = instant;
+            }
         }
         Task::none()
     }
@@ -264,6 +305,31 @@ impl cosmic::Application for AppModel {
 
         self.update_title()
     }
+
+    fn dialog(&self) -> Option<Element<Message>> {
+        if self.show_popup {
+            let active_page = self
+                .nav
+                .data::<Page>(self.nav.active())
+                .copied()
+                .unwrap_or(Page::Page1);
+
+            match active_page {
+                Page::Page1 => Some(
+                    dialog()
+                        .title("This is a popup on page 1!")
+                        .body("This is the body of the popup.")
+                        .primary_action(
+                            button::standard("Close").on_press(Message::TogglePopup)
+                        )
+                        .into(),
+                ),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
 }
 
 impl AppModel {
@@ -274,7 +340,7 @@ impl AppModel {
         let icon = widget::svg(widget::svg::Handle::from_memory(APP_ICON));
 
         let title = widget::text::title2(fl!("app-title"));
-        let author = widget::text::title3("nandi.weird.one");
+        let author = widget::button::link("nandi.weird.one").on_press(Message::OpenAuthorUrl);
 
         let hash = env!("VERGEN_GIT_SHA");
         let short_hash: String = hash.chars().take(7).collect();
@@ -347,5 +413,88 @@ impl menu::action::MenuAction for MenuAction {
         match self {
             MenuAction::About => Message::ToggleContextPage(ContextPage::About),
         }
+    }
+}
+
+/// Kawaii animated canvas with floating hearts and sparkles
+pub struct KawaiiCanvas {
+    animation_time: Instant,
+}
+
+impl KawaiiCanvas {
+    pub fn new(animation_time: Instant) -> Self {
+        Self { animation_time }
+    }
+}
+
+impl canvas::Program<Message> for KawaiiCanvas {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &cosmic::iced::Renderer,
+        _theme: &cosmic::iced::Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<Geometry> {
+        let mut frame = Frame::new(renderer, bounds.size());
+        let center = frame.center();
+        let time = self.animation_time.elapsed().as_secs_f32();
+
+        // Kawaii background gradient circles
+        for i in 0..5 {
+            let angle = time * 0.5 + i as f32 * 1.2;
+            let radius = 30.0 + (time * 2.0 + i as f32).sin() * 10.0;
+            let x = center.x + angle.cos() * (50.0 + i as f32 * 20.0);
+            let y = center.y + angle.sin() * (30.0 + i as f32 * 15.0);
+
+            let circle = Path::circle(Point::new(x, y), radius);
+            let color = match i % 4 {
+                0 => Color::from_rgba(1.0, 0.7, 0.8, 0.3), // Pink
+                1 => Color::from_rgba(0.8, 0.9, 1.0, 0.3), // Light blue
+                2 => Color::from_rgba(1.0, 1.0, 0.8, 0.3), // Light yellow
+                _ => Color::from_rgba(0.9, 0.8, 1.0, 0.3), // Light purple
+            };
+            frame.fill(&circle, color);
+        }
+
+        // Floating hearts (simplified as circles)
+        for i in 0..8 {
+            let t = time * 1.5 + i as f32 * 0.8;
+            let x = center.x + (t * 0.7).cos() * (80.0 + i as f32 * 15.0);
+            let y = center.y + (t * 0.5).sin() * (60.0 + i as f32 * 10.0) - (t * 20.0).sin() * 5.0;
+
+            // Draw simple heart shape using circles
+            let heart_size = 6.0 + (t * 3.0).sin() * 2.0;
+            let heart = Path::circle(Point::new(x, y), heart_size);
+
+            frame.fill(&heart, Color::from_rgba(1.0, 0.4, 0.6, 0.8));
+        }
+
+        // Sparkle stars
+        for i in 0..12 {
+            let t = time * 2.0 + i as f32 * 0.5;
+            let x = center.x + (t * 1.2).cos() * (100.0 + i as f32 * 12.0);
+            let y = center.y + (t * 0.8).sin() * (80.0 + i as f32 * 8.0);
+            let size = 3.0 + (t * 4.0).sin().abs() * 2.0;
+
+            // 4-pointed star
+            let star = Path::new(|path| {
+                path.move_to(Point::new(x, y - size));
+                path.line_to(Point::new(x + size * 0.3, y - size * 0.3));
+                path.line_to(Point::new(x + size, y));
+                path.line_to(Point::new(x + size * 0.3, y + size * 0.3));
+                path.line_to(Point::new(x, y + size));
+                path.line_to(Point::new(x - size * 0.3, y + size * 0.3));
+                path.line_to(Point::new(x - size, y));
+                path.line_to(Point::new(x - size * 0.3, y - size * 0.3));
+                path.close();
+            });
+
+            frame.fill(&star, Color::from_rgba(1.0, 1.0, 0.6, 0.9));
+        }
+
+        vec![frame.into_geometry()]
     }
 }
