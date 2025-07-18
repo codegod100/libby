@@ -6,7 +6,7 @@ use cosmic::app::context_drawer;
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::iced::alignment::{Horizontal, Vertical};
 use cosmic::iced::mouse;
-use cosmic::iced::widget::canvas::{self, Frame, Geometry, Path};
+use cosmic::widget::canvas::{self, Frame, Geometry, Path};
 use cosmic::iced::{Alignment, Color, Length, Point, Rectangle, Subscription};
 use cosmic::prelude::*;
 use cosmic::widget::{self, button, dialog, icon, menu, nav_bar};
@@ -46,7 +46,10 @@ pub enum Message {
     TogglePopup,
     UpdateConfig(Config),
     LaunchUrl(String),
-    Tick(Instant),
+    Tick,
+    GoToPage3,
+    UpdateUsername(String),
+    SaveSettings,
 }
 
 /// Create a COSMIC application from the app model
@@ -130,7 +133,10 @@ impl cosmic::Application for AppModel {
             menu::root(fl!("view")).apply(Element::from),
             menu::items(
                 &self.key_binds,
-                vec![menu::Item::Button(fl!("about"), None, MenuAction::About)],
+                vec![
+                    menu::Item::Button(fl!("about"), None, MenuAction::About),
+                    menu::Item::Button("Settings".to_string(), None, MenuAction::Settings),
+                ],
             ),
         )]);
 
@@ -154,6 +160,11 @@ impl cosmic::Application for AppModel {
                 Message::ToggleContextPage(ContextPage::About),
             )
             .title(fl!("about")),
+            ContextPage::Settings => context_drawer::context_drawer(
+                self.settings(),
+                Message::ToggleContextPage(ContextPage::Settings),
+            )
+            .title("Settings"),
         })
     }
 
@@ -169,32 +180,14 @@ impl cosmic::Application for AppModel {
             .unwrap_or(Page::Page1);
 
         match active_page {
-            Page::Page1 => widget::column()
-                .push(widget::text::title1(fl!("kawaii-title")))
-                .push(widget::text(fl!("kawaii-welcome")))
-                .push(
-                    widget::row()
-                        .push(widget::text("🐱"))
-                        .push(widget::text("💖"))
-                        .push(widget::text("🎀"))
-                        .push(widget::text("🌙"))
-                        .push(widget::text("⭐"))
-                        .spacing(10),
-                )
-                .push(widget::text(fl!("kawaii-face")))
-                .push(widget::button::standard(fl!("kawaii-button")).on_press(Message::TogglePopup))
-                .push(widget::text(fl!("kawaii-footer")))
-                .spacing(20)
-                .apply(widget::container)
+            Page::Page1 => cosmic::widget::canvas(KawaiiCanvas::new(self.animation_time))
                 .width(Length::Fill)
                 .height(Length::Fill)
-                .align_x(Horizontal::Center)
-                .align_y(Vertical::Center)
                 .into(),
             Page::Page2 => widget::column()
                 .push(widget::text::title1("Page 2 Content"))
                 .push(widget::text("This is page 2 with custom content!"))
-                .push(widget::button::standard("Click me").on_press(Message::SubscriptionChannel))
+                .push(widget::button::standard("Click me").on_press(Message::GoToPage3))
                 .spacing(20)
                 .apply(widget::container)
                 .width(Length::Fill)
@@ -202,13 +195,37 @@ impl cosmic::Application for AppModel {
                 .align_x(Horizontal::Center)
                 .align_y(Vertical::Center)
                 .into(),
-            Page::Page3 => widget::text::title1("Page 3")
-                .apply(widget::container)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .align_x(Horizontal::Center)
-                .align_y(Vertical::Center)
-                .into(),
+            Page::Page3 => {
+                let display_username = if self.config.username.is_empty() {
+                    // Fallback to OS username
+                    std::env::var("USER")
+                        .or_else(|_| std::env::var("USERNAME"))
+                        .unwrap_or_else(|_| "Unknown User".to_string())
+                } else {
+                    self.config.username.clone()
+                };
+                
+                let username_text = widget::text::title2(format!("Hello, {}!", display_username));
+                let info_text = if self.config.username.is_empty() {
+                    widget::text("Using OS username. Go to Settings in the View menu to set a custom username.")
+                } else {
+                    widget::text("Go to Settings in the View menu to update your username")
+                };
+                
+                widget::column()
+                    .push(widget::text::title1("Page 3"))
+                    .push(widget::vertical_space().height(20))
+                    .push(username_text)
+                    .push(widget::vertical_space().height(10))
+                    .push(info_text)
+                    .spacing(10)
+                    .apply(widget::container)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_x(Horizontal::Center)
+                    .align_y(Vertical::Center)
+                    .into()
+            }
         }
     }
 
@@ -231,7 +248,7 @@ impl cosmic::Application for AppModel {
                 }),
             ),
             // Animation timer for kawaii canvas
-            cosmic::iced::time::every(Duration::from_millis(16)).map(Message::Tick),
+            cosmic::iced::time::every(Duration::from_millis(16)).map(|_| Message::Tick),
             // Watch for application configuration changes.
             self.core()
                 .watch_config::<Config>(Self::APP_ID)
@@ -291,8 +308,29 @@ impl cosmic::Application for AppModel {
                 }
             },
 
-            Message::Tick(instant) => {
-                self.animation_time = instant;
+            Message::Tick => {}
+
+            Message::GoToPage3 => {
+                // Find the nav ID for page 3
+                let page3_id = self.nav.iter().find(|&id| {
+                    self.nav.data::<Page>(id).copied() == Some(Page::Page3)
+                });
+                
+                if let Some(id) = page3_id {
+                    self.nav.activate(id);
+                    return self.update_title();
+                }
+            }
+
+            Message::UpdateUsername(username) => {
+                self.config.username = username;
+            }
+
+            Message::SaveSettings => {
+                // Save config to persistent storage
+                if let Ok(config_context) = cosmic_config::Config::new(Self::APP_ID, Config::VERSION) {
+                    let _ = self.config.write_entry(&config_context);
+                }
             }
         }
         Task::none()
@@ -319,6 +357,7 @@ impl cosmic::Application for AppModel {
                     dialog()
                         .title("This is a popup on page 1!")
                         .body("This is the body of the popup.")
+                        .icon(icon::from_name("face-cool-symbolic"))
                         .primary_action(
                             button::standard("Close").on_press(Message::TogglePopup)
                         )
@@ -369,6 +408,29 @@ impl AppModel {
             .into()
     }
 
+    /// The settings page for this app.
+    pub fn settings(&self) -> Element<Message> {
+        widget::column()
+            .push(widget::text::title2("Settings"))
+            .push(widget::vertical_space().height(20))
+            .push(widget::text("Username:"))
+            .push(
+                widget::text_input("Enter your username", &self.config.username)
+                    .on_input(Message::UpdateUsername)
+                    .width(Length::Fill)
+            )
+            .push(widget::vertical_space().height(20))
+            .push(
+                widget::button::standard("Save Settings")
+                    .on_press(Message::SaveSettings)
+                    .width(Length::Fill)
+            )
+            .spacing(10)
+            .padding(20)
+            .align_x(Alignment::Center)
+            .into()
+    }
+
     /// Updates the header and window titles.
     pub fn update_title(&mut self) -> Task<cosmic::Action<Message>> {
         let mut window_title = fl!("app-title");
@@ -387,7 +449,7 @@ impl AppModel {
 }
 
 /// The page to display in the application.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum Page {
     Page1,
     Page2,
@@ -399,11 +461,13 @@ pub enum Page {
 pub enum ContextPage {
     #[default]
     About,
+    Settings,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuAction {
     About,
+    Settings,
 }
 
 impl menu::action::MenuAction for MenuAction {
@@ -412,6 +476,7 @@ impl menu::action::MenuAction for MenuAction {
     fn message(&self) -> Self::Message {
         match self {
             MenuAction::About => Message::ToggleContextPage(ContextPage::About),
+            MenuAction::Settings => Message::ToggleContextPage(ContextPage::Settings),
         }
     }
 }
@@ -427,72 +492,152 @@ impl KawaiiCanvas {
     }
 }
 
-impl canvas::Program<Message> for KawaiiCanvas {
+impl canvas::Program<Message, cosmic::Theme, cosmic::Renderer> for KawaiiCanvas {
     type State = ();
 
     fn draw(
         &self,
         _state: &Self::State,
-        renderer: &cosmic::iced::Renderer,
-        _theme: &cosmic::iced::Theme,
+        renderer: &cosmic::Renderer,
+        _theme: &cosmic::Theme,
         bounds: Rectangle,
-        _cursor: mouse::Cursor,
+        cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
         let center = frame.center();
         let time = self.animation_time.elapsed().as_secs_f32();
+        
+        // Use modulo for smooth looping - 30 second loop
+        let loop_duration = 30.0;
+        let loop_time = (time % loop_duration) * (std::f32::consts::PI * 2.0) / loop_duration;
 
-        // Kawaii background gradient circles
+        // Mouse avoidance parameters
+        let mouse_pos = if let Some(pos) = cursor.position() {
+            Point::new(pos.x - bounds.x, pos.y - bounds.y)
+        } else {
+            Point::new(-1.0, -1.0)
+        };
+        let avoidance_radius = 20.0;
+        let repulsion_strength = 15.0;
+
+        // Kawaii background gradient circles with smooth loops
         for i in 0..5 {
-            let angle = time * 0.5 + i as f32 * 1.2;
-            let radius = 30.0 + (time * 2.0 + i as f32).sin() * 10.0;
-            let x = center.x + angle.cos() * (50.0 + i as f32 * 20.0);
-            let y = center.y + angle.sin() * (30.0 + i as f32 * 15.0);
+            let phase = i as f32 * 1.2566; // 2π/5 for even distribution
+            let angle = loop_time * 0.3 + phase;
+            let radius = 30.0 + (loop_time * 1.5 + phase).sin() * 8.0;
+            let orbit_radius = 60.0 + i as f32 * 25.0;
+            let mut x = center.x + angle.cos() * orbit_radius;
+            let mut y = center.y + angle.sin() * orbit_radius * 0.7; // Slightly elliptical
+
+            // Mouse avoidance
+            let dx = x - mouse_pos.x;
+            let dy = y - mouse_pos.y;
+            let distance = (dx * dx + dy * dy).sqrt();
+            if distance < avoidance_radius {
+                let repel_factor = (1.0 - distance / avoidance_radius) * repulsion_strength;
+                x += dx / distance * repel_factor;
+                y += dy / distance * repel_factor;
+            }
 
             let circle = Path::circle(Point::new(x, y), radius);
             let color = match i % 4 {
-                0 => Color::from_rgba(1.0, 0.7, 0.8, 0.3), // Pink
-                1 => Color::from_rgba(0.8, 0.9, 1.0, 0.3), // Light blue
-                2 => Color::from_rgba(1.0, 1.0, 0.8, 0.3), // Light yellow
-                _ => Color::from_rgba(0.9, 0.8, 1.0, 0.3), // Light purple
+                0 => Color::from_rgba(1.0, 0.7, 0.8, 0.4), // Pink
+                1 => Color::from_rgba(0.8, 0.9, 1.0, 0.4), // Light blue
+                2 => Color::from_rgba(1.0, 1.0, 0.8, 0.4), // Light yellow
+                _ => Color::from_rgba(0.9, 0.8, 1.0, 0.4), // Light purple
             };
             frame.fill(&circle, color);
         }
 
-        // Floating hearts (simplified as circles)
+        // Floating hearts with smooth circular motion
         for i in 0..8 {
-            let t = time * 1.5 + i as f32 * 0.8;
-            let x = center.x + (t * 0.7).cos() * (80.0 + i as f32 * 15.0);
-            let y = center.y + (t * 0.5).sin() * (60.0 + i as f32 * 10.0) - (t * 20.0).sin() * 5.0;
+            let phase = i as f32 * 0.785; // 2π/8 for even distribution
+            let t = loop_time * 0.8 + phase;
+            let orbit_radius = 90.0 + (i % 3) as f32 * 20.0;
+            let mut x = center.x + t.cos() * orbit_radius;
+            let mut y = center.y + t.sin() * orbit_radius * 0.6 + (t * 2.0).sin() * 15.0;
 
-            // Draw simple heart shape using circles
-            let heart_size = 6.0 + (t * 3.0).sin() * 2.0;
-            let heart = Path::circle(Point::new(x, y), heart_size);
+            // Mouse avoidance
+            let dx = x - mouse_pos.x;
+            let dy = y - mouse_pos.y;
+            let distance = (dx * dx + dy * dy).sqrt();
+            if distance < avoidance_radius {
+                let repel_factor = (1.0 - distance / avoidance_radius) * repulsion_strength;
+                x += dx / distance * repel_factor;
+                y += dy / distance * repel_factor;
+            }
 
-            frame.fill(&heart, Color::from_rgba(1.0, 0.4, 0.6, 0.8));
-        }
-
-        // Sparkle stars
-        for i in 0..12 {
-            let t = time * 2.0 + i as f32 * 0.5;
-            let x = center.x + (t * 1.2).cos() * (100.0 + i as f32 * 12.0);
-            let y = center.y + (t * 0.8).sin() * (80.0 + i as f32 * 8.0);
-            let size = 3.0 + (t * 4.0).sin().abs() * 2.0;
-
-            // 4-pointed star
-            let star = Path::new(|path| {
-                path.move_to(Point::new(x, y - size));
-                path.line_to(Point::new(x + size * 0.3, y - size * 0.3));
-                path.line_to(Point::new(x + size, y));
-                path.line_to(Point::new(x + size * 0.3, y + size * 0.3));
-                path.line_to(Point::new(x, y + size));
-                path.line_to(Point::new(x - size * 0.3, y + size * 0.3));
-                path.line_to(Point::new(x - size, y));
-                path.line_to(Point::new(x - size * 0.3, y - size * 0.3));
+                        // Pulsing heart size
+            let heart_size = 8.0 + (t * 2.5).sin() * 3.0;
+            let heart = Path::new(|path| {
+                path.move_to(Point::new(x, y + heart_size * 0.25));
+                path.bezier_curve_to(
+                    Point::new(x + heart_size * 0.5, y - heart_size * 0.5),
+                    Point::new(x + heart_size, y),
+                    Point::new(x, y + heart_size),
+                );
+                path.bezier_curve_to(
+                    Point::new(x - heart_size, y),
+                    Point::new(x - heart_size * 0.5, y - heart_size * 0.5),
+                    Point::new(x, y + heart_size * 0.25),
+                );
                 path.close();
             });
 
-            frame.fill(&star, Color::from_rgba(1.0, 1.0, 0.6, 0.9));
+            frame.fill(&heart, Color::from_rgba(1.0, 0.4, 0.6, 0.7));
+        }
+
+        // Sparkle stars with smooth rotation
+        for i in 0..12 {
+            let phase = i as f32 * 0.524; // 2π/12 for even distribution
+            let t = loop_time * 1.2 + phase;
+            let orbit_radius = 120.0 + (i % 4) as f32 * 15.0;
+            let mut x = center.x + t.cos() * orbit_radius;
+            let mut y = center.y + t.sin() * orbit_radius * 0.8;
+            let size = 4.0 + (t * 3.0).sin().abs() * 2.0;
+
+            // Mouse avoidance
+            let dx = x - mouse_pos.x;
+            let dy = y - mouse_pos.y;
+            let distance = (dx * dx + dy * dy).sqrt();
+            if distance < avoidance_radius {
+                let repel_factor = (1.0 - distance / avoidance_radius) * repulsion_strength;
+                x += dx / distance * repel_factor;
+                y += dy / distance * repel_factor;
+            }
+
+            // 4-pointed star with smooth rotation
+            let star_rotation = t * 0.5;
+            let star = Path::new(|path| {
+                let cos_r = star_rotation.cos();
+                let sin_r = star_rotation.sin();
+                
+                // Rotate the star points
+                let points = [
+                    (0.0, -size),
+                    (size * 0.3, -size * 0.3),
+                    (size, 0.0),
+                    (size * 0.3, size * 0.3),
+                    (0.0, size),
+                    (-size * 0.3, size * 0.3),
+                    (-size, 0.0),
+                    (-size * 0.3, -size * 0.3),
+                ];
+                
+                let first_point = points[0];
+                let rotated_x = first_point.0 * cos_r - first_point.1 * sin_r;
+                let rotated_y = first_point.0 * sin_r + first_point.1 * cos_r;
+                path.move_to(Point::new(x + rotated_x, y + rotated_y));
+                
+                for &point in &points[1..] {
+                    let rot_x = point.0 * cos_r - point.1 * sin_r;
+                    let rot_y = point.0 * sin_r + point.1 * cos_r;
+                    path.line_to(Point::new(x + rot_x, y + rot_y));
+                }
+                path.close();
+            });
+
+            frame.fill(&star, Color::from_rgba(1.0, 1.0, 0.6, 0.8));
         }
 
         vec![frame.into_geometry()]
