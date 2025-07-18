@@ -10,6 +10,7 @@ use cosmic::widget::canvas::{self, Frame, Geometry, Path};
 use cosmic::iced::{Alignment, Color, Length, Point, Rectangle, Subscription};
 use cosmic::prelude::*;
 use cosmic::widget::{self, button, dialog, icon, menu, nav_bar};
+use cosmic::iced::widget::Stack;
 use cosmic::{cosmic_theme, theme};
 use futures_util::SinkExt;
 use std::collections::HashMap;
@@ -180,10 +181,31 @@ impl cosmic::Application for AppModel {
             .unwrap_or(Page::Page1);
 
         match active_page {
-            Page::Page1 => cosmic::widget::canvas(KawaiiCanvas::new(self.animation_time))
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
+            Page::Page1 => {
+                let canvas = cosmic::widget::canvas(KawaiiCanvas::new(self.animation_time))
+                    .width(Length::Fill)
+                    .height(Length::Fill);
+
+                let text_content = widget::column()
+                    .push(widget::text::title1("Welcome to the Kawaii Canvas!"))
+                    .push(widget::text("Move your mouse around to see the shapes react."))
+                    .spacing(10)
+                    .padding(20)
+                    .align_x(Horizontal::Center)
+                    .width(Length::Fill);
+
+                let stack = Stack::new()
+                    .push(canvas)
+                    .push(
+                        widget::container(text_content)
+                            .width(Length::Fill)
+                            .height(Length::Fill)
+                            .align_x(Horizontal::Center)
+                            .align_y(Vertical::Center),
+                    );
+
+                stack.into()
+            },
             Page::Page2 => widget::column()
                 .push(widget::text::title1("Page 2 Content"))
                 .push(widget::text("This is page 2 with custom content!"))
