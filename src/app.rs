@@ -189,6 +189,7 @@ impl cosmic::Application for AppModel {
                 let text_content = widget::column()
                     .push(widget::text::title1("Welcome to the Kawaii Canvas!"))
                     .push(widget::text("Move your mouse around to see the shapes react."))
+                    .push(widget::button::standard("Click me").on_press(Message::TogglePopup))
                     .spacing(10)
                     .padding(20)
                     .align_x(Horizontal::Center)
@@ -391,6 +392,8 @@ impl cosmic::Application for AppModel {
             None
         }
     }
+
+    
 }
 
 impl AppModel {
