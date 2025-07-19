@@ -19,6 +19,12 @@ use std::time::{Duration, Instant};
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 const APP_ICON: &[u8] = include_bytes!("../resources/icons/hicolor/scalable/apps/icon.svg");
 
+#[derive(Debug, Clone)]
+pub struct FixtureItem {
+    name: String,
+    description: String,
+}
+
 /// The application model stores app-specific state used to describe its interface and
 /// drive its logic.
 pub struct AppModel {
@@ -35,6 +41,10 @@ pub struct AppModel {
     /// Animation state for kawaii canvas
     animation_time: Instant,
     show_popup: bool,
+    search_expanded: bool,
+    search_query: String,
+    search_input_id: cosmic::iced::widget::text_input::Id,
+    fixture_data: Vec<FixtureItem>,
 }
 
 /// Messages emitted by the application and its widgets.
@@ -51,6 +61,10 @@ pub enum Message {
     GoToPage3,
     UpdateUsername(String),
     SaveSettings,
+    SearchChanged(String),
+    SearchFocused,
+    ClearSearch,
+    ExpandSearch,
 }
 
 /// Create a COSMIC application from the app model
@@ -120,6 +134,23 @@ impl cosmic::Application for AppModel {
                 .unwrap_or_default(),
             animation_time: Instant::now(),
             show_popup: false,
+            search_expanded: false,
+            search_query: String::new(),
+            search_input_id: cosmic::iced::widget::text_input::Id::unique(),
+            fixture_data: vec![
+                FixtureItem {
+                    name: "Apple".to_string(),
+                    description: "A sweet, red fruit".to_string(),
+                },
+                FixtureItem {
+                    name: "Banana".to_string(),
+                    description: "A long, yellow fruit".to_string(),
+                },
+                FixtureItem {
+                    name: "Orange".to_string(),
+                    description: "A round, orange fruit".to_string(),
+                },
+            ],
         };
 
         // Create a startup command that sets the window title.
@@ -142,6 +173,28 @@ impl cosmic::Application for AppModel {
         )]);
 
         vec![menu_bar.into()]
+    }
+
+    /// Elements to pack at the end of the header bar.
+    fn header_end(&self) -> Vec<Element<Self::Message>> {
+        if self.search_expanded {
+            let search_input = widget::text_input::search_input("Search...", &self.search_query)
+                .on_input(Message::SearchChanged)
+                .on_clear(Message::ClearSearch)
+                .id(self.search_input_id.clone().into())
+                .width(Length::Fixed(200.0));
+            
+            vec![search_input.into()]
+        } else {
+            // Show just the search icon
+            let search_icon = icon::from_name("system-search-symbolic")
+                .size(16)
+                .apply(widget::button::custom)
+                .on_press(Message::ExpandSearch)
+                .padding(8);
+            
+            vec![search_icon.into()]
+        }
     }
 
     /// Enables the COSMIC application to create a nav bar with this model.
@@ -207,41 +260,54 @@ impl cosmic::Application for AppModel {
 
                 stack.into()
             },
-            Page::Page2 => widget::column()
-                .push(widget::text::title1("Page 2 Content"))
-                .push(widget::text("This is page 2 with custom content!"))
-                .push(widget::button::standard("Click me").on_press(Message::GoToPage3))
-                .spacing(20)
-                .apply(widget::container)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .align_x(Horizontal::Center)
-                .align_y(Vertical::Center)
-                .into(),
+            Page::Page2 => {
+                let content = widget::column()
+                    .push(widget::text::title1("Page 2 Content"))
+                    .push(widget::text("This is page 2 with custom content!"))
+                    .push(widget::button::standard("Click me").on_press(Message::GoToPage3))
+                    .spacing(20)
+                    .apply(widget::container)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .align_x(Horizontal::Center)
+                    .align_y(Vertical::Center);
+
+                if self.search_query.is_empty() {
+                    content.into()
+                } else {
+                    let filtered_content = widget::column()
+                        .push(widget::text::title1("Page 2 Content"))
+                        .push(widget::text(format!("Searching for: {}", self.search_query)))
+                        .spacing(20)
+                        .apply(widget::container)
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .align_x(Horizontal::Center)
+                        .align_y(Vertical::Center);
+                    filtered_content.into()
+                }
+            },
             Page::Page3 => {
-                let display_username = if self.config.username.is_empty() {
-                    // Fallback to OS username
-                    std::env::var("USER")
-                        .or_else(|_| std::env::var("USERNAME"))
-                        .unwrap_or_else(|_| "Unknown User".to_string())
+                let mut col = widget::column().push(widget::text::title1("Page 3"));
+
+                if self.search_query.is_empty() {
+                    for item in &self.fixture_data {
+                        col = col.push(widget::text(&item.name));
+                        col = col.push(widget::text(&item.description));
+                    }
                 } else {
-                    self.config.username.clone()
-                };
-                
-                let username_text = widget::text::title2(format!("Hello, {}!", display_username));
-                let info_text = if self.config.username.is_empty() {
-                    widget::text("Using OS username. Go to Settings in the View menu to set a custom username.")
-                } else {
-                    widget::text("Go to Settings in the View menu to update your username")
-                };
-                
-                widget::column()
-                    .push(widget::text::title1("Page 3"))
-                    .push(widget::vertical_space().height(20))
-                    .push(username_text)
-                    .push(widget::vertical_space().height(10))
-                    .push(info_text)
-                    .spacing(10)
+                    let filtered_data = self.fixture_data.iter().filter(|item| {
+                        item.name.to_lowercase().contains(&self.search_query.to_lowercase())
+                            || item.description.to_lowercase().contains(&self.search_query.to_lowercase())
+                    });
+
+                    for item in filtered_data {
+                        col = col.push(widget::text(&item.name));
+                        col = col.push(widget::text(&item.description));
+                    }
+                }
+
+                col.spacing(10)
                     .apply(widget::container)
                     .width(Length::Fill)
                     .height(Length::Fill)
@@ -355,6 +421,30 @@ impl cosmic::Application for AppModel {
                     let _ = self.config.write_entry(&config_context);
                 }
             }
+            Message::SearchChanged(query) => {
+                self.search_query = query;
+                let page3_id = self.nav.iter().find(|&id| {
+                    self.nav.data::<Page>(id).copied() == Some(Page::Page3)
+                });
+
+                if let Some(id) = page3_id {
+                    let id = id.clone();
+                    self.nav.activate(id);
+                    return self.update_title();
+                }
+            }
+            Message::SearchFocused => {}
+            Message::ClearSearch => {
+                self.search_query.clear();
+                self.search_expanded = false; // Collapse back to icon
+            }
+            Message::ExpandSearch => {
+                self.search_expanded = true;
+                return Task::batch([
+                    cosmic::iced::widget::text_input::focus(self.search_input_id.clone()),
+                    cosmic::iced::widget::text_input::select_all(self.search_input_id.clone())
+                ]);
+            }
         }
         Task::none()
     }
@@ -365,6 +455,15 @@ impl cosmic::Application for AppModel {
         self.nav.activate(id);
 
         self.update_title()
+    }
+
+    /// Called when search is triggered.
+    fn on_search(&mut self) -> Task<cosmic::Action<Self::Message>> {
+        self.search_expanded = true;
+        Task::batch(vec![
+            cosmic::iced::widget::focus_next(),
+            Task::done(cosmic::Action::from(Message::SearchFocused)),
+        ])
     }
 
     fn dialog(&self) -> Option<Element<Message>> {
