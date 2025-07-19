@@ -6,11 +6,11 @@ use cosmic::app::context_drawer;
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
 use cosmic::iced::alignment::{Horizontal, Vertical};
 use cosmic::iced::mouse;
-use cosmic::widget::canvas::{self, Frame, Geometry, Path};
+use cosmic::iced::widget::Stack;
 use cosmic::iced::{Alignment, Color, Length, Point, Rectangle, Subscription};
 use cosmic::prelude::*;
+use cosmic::widget::canvas::{self, Frame, Geometry, Path};
 use cosmic::widget::{self, button, dialog, icon, menu, nav_bar};
-use cosmic::iced::widget::Stack;
 use cosmic::{cosmic_theme, theme};
 use futures_util::SinkExt;
 use std::collections::HashMap;
@@ -150,6 +150,10 @@ impl cosmic::Application for AppModel {
                     name: "Orange".to_string(),
                     description: "A round, orange fruit".to_string(),
                 },
+                FixtureItem {
+                    name: "test".to_string(),
+                    description: "ok".to_string(),
+                },
             ],
         };
 
@@ -183,7 +187,7 @@ impl cosmic::Application for AppModel {
                 .on_clear(Message::ClearSearch)
                 .id(self.search_input_id.clone().into())
                 .width(Length::Fixed(200.0));
-            
+
             vec![search_input.into()]
         } else {
             // Show just the search icon
@@ -192,7 +196,7 @@ impl cosmic::Application for AppModel {
                 .apply(widget::button::custom)
                 .on_press(Message::ExpandSearch)
                 .padding(8);
-            
+
             vec![search_icon.into()]
         }
     }
@@ -241,52 +245,60 @@ impl cosmic::Application for AppModel {
 
                 let text_content = widget::column()
                     .push(widget::text::title1("Welcome to the Kawaii Canvas!"))
-                    .push(widget::text("Move your mouse around to see the shapes react."))
+                    .push(widget::text(
+                        "Move your mouse around to see the shapes react.",
+                    ))
                     .push(widget::button::standard("Click me").on_press(Message::TogglePopup))
                     .spacing(10)
                     .padding(20)
                     .align_x(Horizontal::Center)
                     .width(Length::Fill);
 
-                let stack = Stack::new()
-                    .push(canvas)
-                    .push(
-                        widget::container(text_content)
-                            .width(Length::Fill)
-                            .height(Length::Fill)
-                            .align_x(Horizontal::Center)
-                            .align_y(Vertical::Center),
-                    );
+                let stack = Stack::new().push(canvas).push(
+                    widget::container(text_content)
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .align_x(Horizontal::Center)
+                        .align_y(Vertical::Center),
+                );
 
                 stack.into()
-            },
+            }
             Page::Page2 => {
-                let content = widget::column()
+                let display_username = if self.config.username.is_empty() {
+                    // Fallback to OS username
+                    std::env::var("USER")
+                        .or_else(|_| std::env::var("USERNAME"))
+                        .unwrap_or_else(|_| "Unknown User".to_string())
+                } else {
+                    self.config.username.clone()
+                };
+
+                let username_text =
+                    widget::text::title2(format!("Welcome back, {}!", display_username));
+                let info_text = if self.config.username.is_empty() {
+                    widget::text("Using OS username. Go to Settings in the View menu to set a custom username.")
+                } else {
+                    widget::text("Go to Settings in the View menu to update your username")
+                };
+
+                widget::column()
                     .push(widget::text::title1("Page 2 Content"))
+                    .push(widget::vertical_space().height(10))
+                    .push(username_text)
+                    .push(widget::vertical_space().height(5))
+                    .push(info_text)
+                    .push(widget::vertical_space().height(20))
                     .push(widget::text("This is page 2 with custom content!"))
                     .push(widget::button::standard("Click me").on_press(Message::GoToPage3))
-                    .spacing(20)
+                    .spacing(10)
                     .apply(widget::container)
                     .width(Length::Fill)
                     .height(Length::Fill)
                     .align_x(Horizontal::Center)
-                    .align_y(Vertical::Center);
-
-                if self.search_query.is_empty() {
-                    content.into()
-                } else {
-                    let filtered_content = widget::column()
-                        .push(widget::text::title1("Page 2 Content"))
-                        .push(widget::text(format!("Searching for: {}", self.search_query)))
-                        .spacing(20)
-                        .apply(widget::container)
-                        .width(Length::Fill)
-                        .height(Length::Fill)
-                        .align_x(Horizontal::Center)
-                        .align_y(Vertical::Center);
-                    filtered_content.into()
-                }
-            },
+                    .align_y(Vertical::Center)
+                    .into()
+            }
             Page::Page3 => {
                 let mut col = widget::column().push(widget::text::title1("Page 3"));
 
@@ -296,14 +308,33 @@ impl cosmic::Application for AppModel {
                         col = col.push(widget::text(&item.description));
                     }
                 } else {
-                    let filtered_data = self.fixture_data.iter().filter(|item| {
-                        item.name.to_lowercase().contains(&self.search_query.to_lowercase())
-                            || item.description.to_lowercase().contains(&self.search_query.to_lowercase())
-                    });
+                    let filtered_data: Vec<_> = self
+                        .fixture_data
+                        .iter()
+                        .filter(|item| {
+                            item.name
+                                .to_lowercase()
+                                .contains(&self.search_query.to_lowercase())
+                                || item
+                                    .description
+                                    .to_lowercase()
+                                    .contains(&self.search_query.to_lowercase())
+                        })
+                        .collect();
 
-                    for item in filtered_data {
-                        col = col.push(widget::text(&item.name));
-                        col = col.push(widget::text(&item.description));
+                    if filtered_data.is_empty() {
+                        col = col.push(widget::vertical_space().height(20));
+                        col = col.push(widget::text::title3("🔍 No results found"));
+                        col = col.push(widget::text(format!(
+                            "No items match \"{}\"",
+                            self.search_query
+                        )));
+                        col = col.push(widget::text("Try a different search term"));
+                    } else {
+                        for item in filtered_data {
+                            col = col.push(widget::text(&item.name));
+                            col = col.push(widget::text(&item.description));
+                        }
                     }
                 }
 
@@ -401,10 +432,11 @@ impl cosmic::Application for AppModel {
 
             Message::GoToPage3 => {
                 // Find the nav ID for page 3
-                let page3_id = self.nav.iter().find(|&id| {
-                    self.nav.data::<Page>(id).copied() == Some(Page::Page3)
-                });
-                
+                let page3_id = self
+                    .nav
+                    .iter()
+                    .find(|&id| self.nav.data::<Page>(id).copied() == Some(Page::Page3));
+
                 if let Some(id) = page3_id {
                     self.nav.activate(id);
                     return self.update_title();
@@ -417,15 +449,18 @@ impl cosmic::Application for AppModel {
 
             Message::SaveSettings => {
                 // Save config to persistent storage
-                if let Ok(config_context) = cosmic_config::Config::new(Self::APP_ID, Config::VERSION) {
+                if let Ok(config_context) =
+                    cosmic_config::Config::new(Self::APP_ID, Config::VERSION)
+                {
                     let _ = self.config.write_entry(&config_context);
                 }
             }
             Message::SearchChanged(query) => {
                 self.search_query = query;
-                let page3_id = self.nav.iter().find(|&id| {
-                    self.nav.data::<Page>(id).copied() == Some(Page::Page3)
-                });
+                let page3_id = self
+                    .nav
+                    .iter()
+                    .find(|&id| self.nav.data::<Page>(id).copied() == Some(Page::Page3));
 
                 if let Some(id) = page3_id {
                     let id = id.clone();
@@ -442,7 +477,7 @@ impl cosmic::Application for AppModel {
                 self.search_expanded = true;
                 return Task::batch([
                     cosmic::iced::widget::text_input::focus(self.search_input_id.clone()),
-                    cosmic::iced::widget::text_input::select_all(self.search_input_id.clone())
+                    cosmic::iced::widget::text_input::select_all(self.search_input_id.clone()),
                 ]);
             }
         }
@@ -480,9 +515,7 @@ impl cosmic::Application for AppModel {
                         .title("This is a popup on page 1!")
                         .body("This is the body of the popup.")
                         .icon(icon::from_name("face-cool-symbolic"))
-                        .primary_action(
-                            button::standard("Close").on_press(Message::TogglePopup)
-                        )
+                        .primary_action(button::standard("Close").on_press(Message::TogglePopup))
                         .into(),
                 ),
                 _ => None,
@@ -491,8 +524,6 @@ impl cosmic::Application for AppModel {
             None
         }
     }
-
-    
 }
 
 impl AppModel {
@@ -541,13 +572,13 @@ impl AppModel {
             .push(
                 widget::text_input("Enter your username", &self.config.username)
                     .on_input(Message::UpdateUsername)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             )
             .push(widget::vertical_space().height(20))
             .push(
                 widget::button::standard("Save Settings")
                     .on_press(Message::SaveSettings)
-                    .width(Length::Fill)
+                    .width(Length::Fill),
             )
             .spacing(10)
             .padding(20)
@@ -630,7 +661,7 @@ impl canvas::Program<Message, cosmic::Theme, cosmic::Renderer> for KawaiiCanvas 
         let mut frame = Frame::new(renderer, bounds.size());
         let center = frame.center();
         let time = self.animation_time.elapsed().as_secs_f32();
-        
+
         // Use modulo for smooth looping - 30 second loop
         let loop_duration = 30.0;
         let loop_time = (time % loop_duration) * (std::f32::consts::PI * 2.0) / loop_duration;
@@ -691,7 +722,7 @@ impl canvas::Program<Message, cosmic::Theme, cosmic::Renderer> for KawaiiCanvas 
                 y += dy / distance * repel_factor;
             }
 
-                        // Pulsing heart size
+            // Pulsing heart size
             let heart_size = 8.0 + (t * 2.5).sin() * 3.0;
             let heart = Path::new(|path| {
                 path.move_to(Point::new(x, y + heart_size * 0.25));
@@ -735,7 +766,7 @@ impl canvas::Program<Message, cosmic::Theme, cosmic::Renderer> for KawaiiCanvas 
             let star = Path::new(|path| {
                 let cos_r = star_rotation.cos();
                 let sin_r = star_rotation.sin();
-                
+
                 // Rotate the star points
                 let points = [
                     (0.0, -size),
@@ -747,12 +778,12 @@ impl canvas::Program<Message, cosmic::Theme, cosmic::Renderer> for KawaiiCanvas 
                     (-size, 0.0),
                     (-size * 0.3, -size * 0.3),
                 ];
-                
+
                 let first_point = points[0];
                 let rotated_x = first_point.0 * cos_r - first_point.1 * sin_r;
                 let rotated_y = first_point.0 * sin_r + first_point.1 * cos_r;
                 path.move_to(Point::new(x + rotated_x, y + rotated_y));
-                
+
                 for &point in &points[1..] {
                     let rot_x = point.0 * cos_r - point.1 * sin_r;
                     let rot_y = point.0 * sin_r + point.1 * cos_r;
